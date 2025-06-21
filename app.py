@@ -1,14 +1,3 @@
-# 雲端部署支援
-def get_api_key():
-    if hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
-        return st.secrets["GOOGLE_API_KEY"]
-    elif "GOOGLE_API_KEY" in os.environ:
-        return os.environ["GOOGLE_API_KEY"]
-    return None
-
-api_key = get_api_key()
-if api_key:
-    os.environ["GOOGLE_API_KEY"] = api_key
 import streamlit as st
 import os
 from dotenv import load_dotenv
@@ -27,6 +16,19 @@ import threading
 import schedule
 
 load_dotenv()
+
+# 雲端部署支援
+def get_api_key():
+    if hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
+        return st.secrets["GOOGLE_API_KEY"]
+    elif "GOOGLE_API_KEY" in os.environ:
+        return os.environ["GOOGLE_API_KEY"]
+    return None
+
+api_key = get_api_key()
+if api_key:
+    os.environ["GOOGLE_API_KEY"] = api_key
+
 
 # 頁面設定
 st.set_page_config(
