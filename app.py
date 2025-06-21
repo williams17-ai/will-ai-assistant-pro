@@ -138,32 +138,421 @@ class StockDataManager:
         return None
 
 # 簡化的新聞管理
+# 將這段代碼替換到你的app.py中的NewsManager類
+
 class NewsManager:
+    def __init__(self):
+        self.cache = {}
+        self.cache_expiry = 1800  # 30分鐘緩存
+        
+        # 預設RSS源
+        self.default_feeds = {
+            'TechCrunch AI': 'https://techcrunch.com/category/artificial-intelligence/feed/',
+            'The Verge AI': 'https://www.theverge.com/ai-artificial-intelligence/rss/index.xml',
+            'VentureBeat AI': 'https://venturebeat.com/ai/feed/',
+            'MIT Technology Review': 'https://www.technologyreview.com/feed/',
+            'AI News': 'https://artificialintelligence-news.com/feed/',
+            'TechNews World': 'https://www.technewsworld.com/perl/syndication/rssfull.pl',
+            'Ars Technica': 'https://feeds.arstechnica.com/arstechnica/index'
+        }
+    
+    def get_user_feeds(self):
+        """獲取用戶自訂的RSS源"""
+        if 'user_rss_feeds' not in st.session_state:
+            st.session_state.user_rss_feeds = self.default_feeds.copy()
+        return st.session_state.user_rss_feeds
+    
+    def add_rss_feed(self, name, url):
+        """添加新的RSS源"""
+        if 'user_rss_feeds' not in st.session_state:
+            st.session_state.user_rss_feeds = self.default_feeds.copy()
+        st.session_state.user_rss_feeds[name] = url
+        return True
+    
+    def remove_rss_feed(self, name):
+        """移除RSS源"""
+        if 'user_rss_feeds' in st.session_state and name in st.session_state.user_rss_feeds:
+            del st.session_state.user_rss_feeds[name]
+            return True
+        return False
+    
+    def test_rss_feed(self, url):
+        """測試RSS源是否有效"""
+        try:
+            feed = feedparser.parse(url)
+            if feed.bozo == 0 and len(feed.entries) > 0:
+                return True, f"成功！找到 {len(feed.entries)} 篇文章"
+            else:
+                return False, "RSS源無效或沒有內容"
+        except Exception as e:
+            return False, f"測試失敗：{str(e)}"
+    
+    def get_news_from_feeds(self, selected_feeds=None):
+        """從選定的RSS源獲取新聞"""
+        current_time = time.time()
+        
+        # 檢查緩存
+        cache_key = 'custom_news' if selected_feeds else 'all_news'
+        if cache_key in self.cache:
+            if current_time - self.cache[cache_key]['timestamp'] < self.cache_expiry:
+                return self.cache[cache_key]['data']
+        
+        user_feeds = self.get_user_feeds()
+        feeds_to_use = selected_feeds if selected_feeds else user_feeds
+        
+        all_news = []
+        
+        for feed_name, feed_url in feeds_to_use.items():
+            try:
+                feed = feedparser.parse(feed_url)
+                
+                for entry in feed.entries[:5]:  # 每個來源取5篇
+                    # 處理摘要
+                    summary = ""
+                    if hasattr(entry, 'summary'):
+                        # 清理HTML標籤
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(entry.summary, 'html.parser')
+                        summary = soup.get_text()[:300] + '...' if len(soup.get_text()) > 300 else soup.get_text()
+                    elif hasattr(entry, 'description'):
+                        soup = BeautifulSoup(entry.description, 'html.parser')
+                        summary = soup.get_text()[:300] + '...' if len(soup.get_text()) > 300 else soup.get_text()
+                    else:
+                        summary = "暫無摘要"
+                    
+                    # 處理發布時間
+                    published = "未知時間"
+                    if hasattr(entry, 'published'):
+                        try:
+                            import time as time_module
+                            pub_time = time_module.mktime(entry.published_parsed)
+                            taiwan_time = datetime.fromtimestamp(pub_time, TAIWAN_TZ)
+                            published = taiwan_time.strftime('%Y-%m-%d %H:%M')
+                        except:
+                            published = entry.published
+                    
+                    all_news.append({
+                        'title': entry.title,
+                        'summary': summary,
+                        'link': entry.link,
+                        'published': published,
+                        'source': feed_name,
+                        'feed_url': feed_url
+                    })
+                    
+            except Exception as e:
+                # 記錄錯誤但繼續處理其他源
+                st.warning(f"無法載入 {feed_name}: {str(e)}")
+                continue
+        
+        # 按發布時間排序（嘗試智能排序）
+        def sort_key(news_item):
+            try:
+                if news_item['published'] != "未知時間":
+                    # 嘗試解析時間進行排序
+                    return news_item['published']
+                else:
+                    return "0000-00-00 00:00"
+            except:
+                return "0000-00-00 00:00"
+        
+        all_news.sort(key=sort_key, reverse=True)
+        
+        # 更新緩存
+        self.cache[cache_key] = {
+            'data': all_news[:20],  # 取前20篇
+            'timestamp': current_time
+        }
+        
+        return all_news[:20]
+    
+    def search_news(self, query, max_results=10):
+        """搜尋特定主題新聞"""
+        try:
+            all_news = self.get_news_from_feeds()
+            filtered_news = [
+                news for news in all_news 
+                if query.lower() in news['title'].lower() or query.lower() in news['summary'].lower()
+            ]
+            return filtered_news[:max_results]
+        except:
+            return []
+    
     def get_fallback_news(self):
+        """備用新聞數據"""
         return [
             {
                 'title': 'Google Gemini 2.5 Flash 性能突破',
                 'summary': 'Google最新發布的Gemini 2.5 Flash在多項AI基準測試中表現優異，特別在程式碼生成和數學推理方面有顯著提升。',
                 'link': '#',
                 'published': '2小時前',
-                'source': 'AI科技新聞'
+                'source': '備用新聞'
             },
             {
                 'title': 'OpenAI GPT-5 開發進展曝光',
                 'summary': '據內部消息，OpenAI正在加速GPT-5的開發，預計將在推理能力和多模態處理方面帶來革命性改進。',
                 'link': '#',
                 'published': '4小時前',
-                'source': 'TechCrunch'
+                'source': '備用新聞'
             },
             {
                 'title': 'AI在醫療診斷領域的新突破',
                 'summary': '最新研究顯示，AI系統在某些疾病診斷方面已經超越了人類醫生的準確率，為醫療行業帶來革命性變化。',
                 'link': '#',
                 'published': '6小時前',
-                'source': 'The Verge'
+                'source': '備用新聞'
             }
         ]
 
+# 將這段代碼替換到你的app.py中的新知頁面部分
+
+elif st.session_state.current_page == "新知":
+    st.title("📰 AI新知與科技資訊")
+    
+    # 頁籤系統
+    tab1, tab2 = st.tabs(["📰 瀏覽新聞", "⚙️ 管理RSS源"])
+    
+    with tab1:
+        # 新聞瀏覽頁面
+        st.markdown("### 🔍 新聞控制台")
+        
+        # 控制面板
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("🔄 刷新新聞", key="refresh_news"):
+                st.session_state.news_manager.cache.clear()
+                st.success("緩存已清除，正在載入最新新聞...")
+                st.rerun()
+        
+        with col2:
+            news_count = st.selectbox("顯示數量", [5, 10, 15, 20], index=1, key="news_count")
+        
+        with col3:
+            # RSS源選擇
+            available_feeds = st.session_state.news_manager.get_user_feeds()
+            selected_feeds_names = st.multiselect(
+                "選擇新聞源",
+                list(available_feeds.keys()),
+                default=list(available_feeds.keys())[:3],  # 預設選擇前3個
+                key="selected_feeds"
+            )
+        
+        with col4:
+            st.write(f"**更新時間:** {get_taiwan_time().strftime('%H:%M')}")
+        
+        # 新聞搜尋
+        search_term = st.text_input("🔍 搜尋新聞", placeholder="輸入關鍵字搜尋...", key="news_search")
+        
+        # 載入新聞數據
+        with st.spinner("📰 正在載入新聞..."):
+            try:
+                if search_term:
+                    # 搜尋模式
+                    news_list = st.session_state.news_manager.search_news(search_term)
+                    if news_list:
+                        st.success(f"🔍 找到 {len(news_list)} 篇相關新聞")
+                    else:
+                        st.warning("沒有找到相關新聞")
+                        news_list = []
+                else:
+                    # 一般瀏覽模式
+                    if selected_feeds_names:
+                        selected_feeds = {name: available_feeds[name] for name in selected_feeds_names}
+                        news_list = st.session_state.news_manager.get_news_from_feeds(selected_feeds)
+                    else:
+                        news_list = st.session_state.news_manager.get_news_from_feeds()
+                
+                # 如果沒有新聞，使用備用新聞
+                if not news_list:
+                    st.warning("無法從RSS源載入新聞，顯示備用新聞")
+                    news_list = st.session_state.news_manager.get_fallback_news()
+                    
+            except Exception as e:
+                st.error(f"載入新聞時發生錯誤：{e}")
+                news_list = st.session_state.news_manager.get_fallback_news()
+        
+        # 顯示新聞
+        if news_list:
+            st.markdown(f"### 📊 共 {len(news_list[:news_count])} 則新聞")
+            
+            for i, news in enumerate(news_list[:news_count]):
+                # 使用expander來組織新聞內容
+                with st.expander(f"📰 {news['title']}", expanded=False):
+                    st.write(f"**摘要：** {news['summary']}")
+                    st.write(f"**發布時間：** {news['published']}")
+                    st.write(f"**來源：** {news['source']}")
+                    
+                    # 操作按鈕
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if news['link'] != '#':
+                            st.markdown(f"[📖 閱讀原文]({news['link']})")
+                        else:
+                            st.info("範例新聞，無原文連結")
+                    
+                    with col2:
+                        if st.button("🤖 AI解讀", key=f"analyze_news_{i}"):
+                            if model:
+                                with st.spinner("🤖 AI正在分析新聞內容..."):
+                                    try:
+                                        analysis_prompt = f"""
+                                        請分析以下新聞文章：
+                                        
+                                        標題：{news['title']}
+                                        摘要：{news['summary']}
+                                        
+                                        請提供：
+                                        1. 🎯 核心重點：這篇新聞的主要內容是什麼？
+                                        2. 📈 產業影響：對相關產業可能產生什麼影響？
+                                        3. 🔮 趨勢預測：這反映了什麼技術或市場趨勢？
+                                        4. 💡 實際意義：對一般用戶或企業有什麼實際意義？
+                                        
+                                        請用繁體中文回答，保持簡潔且具有洞察力。
+                                        """
+                                        
+                                        response = model.generate_content(analysis_prompt)
+                                        st.markdown("---")
+                                        st.markdown("**🤖 AI深度分析：**")
+                                        st.markdown(response.text)
+                                        
+                                    except Exception as e:
+                                        st.error(f"AI分析失敗：{e}")
+                                        st.info("請稍後再試或檢查API設定")
+                            else:
+                                st.error("AI模型未初始化，請檢查API設定")
+                    
+                    with col3:
+                        if st.button("📋 複製內容", key=f"copy_news_{i}"):
+                            copy_text = f"""標題：{news['title']}
+
+摘要：{news['summary']}
+
+來源：{news['source']}
+時間：{news['published']}
+連結：{news['link']}"""
+                            st.text_area("複製以下內容：", copy_text, height=150, key=f"copy_area_{i}")
+                
+                # 分隔線
+                if i < len(news_list[:news_count]) - 1:
+                    st.divider()
+        else:
+            st.error("無法載入新聞內容，請檢查RSS源設定或網路連線")
+    
+    with tab2:
+        # RSS源管理頁面
+        st.markdown("### ⚙️ RSS新聞源管理")
+        
+        # 添加新RSS源
+        st.markdown("#### ➕ 添加新的RSS源")
+        col1, col2, col3 = st.columns([2, 3, 1])
+        
+        with col1:
+            new_feed_name = st.text_input("RSS源名稱", placeholder="例如: BBC Technology", key="new_feed_name")
+        
+        with col2:
+            new_feed_url = st.text_input("RSS URL", placeholder="例如: https://example.com/rss", key="new_feed_url")
+        
+        with col3:
+            st.write("")  # 空白用於對齊
+            st.write("")  # 空白用於對齊
+            if st.button("🧪 測試", key="test_feed"):
+                if new_feed_url:
+                    with st.spinner("測試RSS源..."):
+                        is_valid, message = st.session_state.news_manager.test_rss_feed(new_feed_url)
+                        if is_valid:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
+                else:
+                    st.warning("請輸入RSS URL")
+        
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("➕ 添加RSS源", key="add_feed", type="primary"):
+                if new_feed_name and new_feed_url:
+                    if st.session_state.news_manager.add_rss_feed(new_feed_name, new_feed_url):
+                        st.success(f"✅ 已添加 {new_feed_name}")
+                        st.rerun()
+                    else:
+                        st.error("添加失敗")
+                else:
+                    st.warning("請填寫RSS源名稱和URL")
+        
+        # 管理現有RSS源
+        st.markdown("#### 📋 管理現有RSS源")
+        
+        current_feeds = st.session_state.news_manager.get_user_feeds()
+        
+        if current_feeds:
+            for feed_name, feed_url in current_feeds.items():
+                col1, col2, col3, col4 = st.columns([2, 3, 1, 1])
+                
+                with col1:
+                    st.write(f"**{feed_name}**")
+                
+                with col2:
+                    st.write(f"`{feed_url[:50]}...`" if len(feed_url) > 50 else f"`{feed_url}`")
+                
+                with col3:
+                    if st.button("🧪", key=f"test_{feed_name}", help="測試此RSS源"):
+                        with st.spinner("測試中..."):
+                            is_valid, message = st.session_state.news_manager.test_rss_feed(feed_url)
+                            if is_valid:
+                                st.success(f"✅ {message}")
+                            else:
+                                st.error(f"❌ {message}")
+                
+                with col4:
+                    if st.button("🗑️", key=f"remove_{feed_name}", help="移除此RSS源"):
+                        if st.session_state.news_manager.remove_rss_feed(feed_name):
+                            st.success(f"已移除 {feed_name}")
+                            st.rerun()
+        else:
+            st.info("目前沒有RSS源")
+        
+        # 推薦RSS源
+        st.markdown("#### 🌟 推薦RSS源")
+        
+        recommended_feeds = {
+            'Reuters Technology': 'https://feeds.reuters.com/reuters/technologyNews',
+            'BBC Technology': 'https://feeds.bbci.co.uk/news/technology/rss.xml',
+            'Wired': 'https://www.wired.com/feed/rss',
+            'Engadget': 'https://www.engadget.com/rss.xml',
+            'Gizmodo': 'https://gizmodo.com/rss',
+            'The Next Web': 'https://thenextweb.com/feed/',
+            'Digital Trends': 'https://www.digitaltrends.com/feed/',
+            'Mashable Tech': 'https://mashable.com/feeds/rss/tech'
+        }
+        
+        st.write("點擊下面的RSS源可以快速添加：")
+        
+        cols = st.columns(2)
+        for i, (name, url) in enumerate(recommended_feeds.items()):
+            with cols[i % 2]:
+                if st.button(f"➕ {name}", key=f"rec_{i}", use_container_width=True):
+                    if st.session_state.news_manager.add_rss_feed(name, url):
+                        st.success(f"✅ 已添加 {name}")
+                        st.rerun()
+        
+        # 使用說明
+        with st.expander("📖 使用說明"):
+            st.markdown("""
+            **如何使用RSS源管理：**
+            
+            1. **添加RSS源**：輸入名稱和RSS URL，點擊"測試"確認有效後添加
+            2. **測試RSS源**：點擊🧪按鈕測試RSS源是否正常工作
+            3. **移除RSS源**：點擊🗑️按鈕移除不需要的RSS源
+            4. **選擇新聞源**：在"瀏覽新聞"頁籤中選擇要顯示的新聞源
+            
+            **如何找到RSS URL：**
+            - 大多數新聞網站都有RSS訂閱連結
+            - 通常在網站底部或"訂閱"頁面
+            - 常見格式：/rss, /feed, /rss.xml, /feed.xml
+            
+            **推薦的科技新聞RSS源已提供，點擊即可快速添加！**
+            """)
 # 簡化的聊天管理
 class ChatManager:
     def __init__(self):
