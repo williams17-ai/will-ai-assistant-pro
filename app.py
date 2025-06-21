@@ -1196,7 +1196,7 @@ with col3:
 with col4:
     taiwan_time = get_taiwan_time()
     st.markdown(f"**⏰ {taiwan_time.strftime('%H:%M:%S')}**")
-    st.caption("台灣時間")")
+    st.caption("台灣時間")
                                     highlighted_response = st.session_state.chat_manager.highlight_keyword(result['ai_response'], search_keyword)
                                     st.markdown(highlighted_response, unsafe_allow_html=True)
                                 
