@@ -291,7 +291,6 @@ class NewsManager:
             }
         ]
 
-# 步驟2: 找到新知頁面的代碼（搜索 elif st.session_state.current_page == "新知":），完全替換為以下代碼：
 
 elif st.session_state.current_page == "新知":
     st.title("📰 AI新知與科技資訊")
