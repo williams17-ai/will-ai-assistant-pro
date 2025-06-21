@@ -12,8 +12,7 @@ import requests
 import feedparser
 from bs4 import BeautifulSoup
 from typing import Dict, List
-import threading
-import schedule
+
 
 load_dotenv()
 
