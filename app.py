@@ -178,7 +178,8 @@ class StockDataManager:
                 }
                 
                 return data
-        except:
+        except Exception as e:
+            print(f"Stock data error: {e}")
             pass
         return None
 
@@ -227,449 +228,6 @@ class NewsManager:
                             elif time_diff.seconds > 3600:
                                 time_str = f"{time_diff.seconds // 3600}小時前"
                             else:
-                                time_str = f"{time_diff.seconds // 60}分鐘前"
-                        except:
-                            time_str = "時間未知"
-                    else:
-                        time_str = "時間未知"
-                    
-                    articles.append({
-                        'title': article.get('title', '無標題'),
-                        'summary': article.get('description', '無摘要'),
-                        'link': article.get('url', '#'),
-                        'published': time_str,
-                        'source': article.get('source', {}).get('name', '未知來源'),
-                        'image': article.get('urlToImage', '')
-                    })
-                
-                return articles
-        except Exception as e:
-            print(f"NewsAPI 錯誤: {e}")
-            
-        return []
-    
-    def get_rss_news(self, max_articles=15):
-        """從 RSS feeds 獲取新聞"""
-        all_articles = []
-        
-        for feed_url in self.rss_feeds:
-            try:
-                feed = feedparser.parse(feed_url)
-                
-                for entry in feed.entries[:5]:  # 每個feed最多取5篇
-                    # 解析發布時間
-                    published_time = "時間未知"
-                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                        try:
-                            pub_time = datetime(*entry.published_parsed[:6], tzinfo=pytz.UTC)
-                            time_diff = datetime.now(pytz.UTC) - pub_time
-                            if time_diff.days > 0:
-                                published_time = f"{time_diff.days}天前"
-                            elif time_diff.seconds > 3600:
-                                published_time = f"{time_diff.seconds // 3600}小時前"
-                            else:
-                                published_time = f"{time_diff.seconds // 60}分鐘前"
-                        except:
-                            pass
-                    
-                    # 取得摘要
-                    summary = ""
-                    if hasattr(entry, 'summary'):
-                        # 清理HTML標籤
-                        soup = BeautifulSoup(entry.summary, 'html.parser')
-                        summary = soup.get_text()[:200] + "..." if len(soup.get_text()) > 200 else soup.get_text()
-                    
-                    article = {
-                        'title': entry.get('title', '無標題'),
-                        'summary': summary or '無摘要',
-                        'link': entry.get('link', '#'),
-                        'published': published_time,
-                        'source': feed.feed.get('title', '未知來源'),
-                        'image': ''
-                    }
-                    
-                    # 嘗試獲取圖片
-                    if hasattr(entry, 'media_content') and entry.media_content:
-                        article['image'] = entry.media_content[0].get('url', '')
-                    elif hasattr(entry, 'enclosures') and entry.enclosures:
-                        for enclosure in entry.enclosures:
-                            if enclosure.type.startswith('image/'):
-                                article['image'] = enclosure.href
-                                break
-                    
-                    all_articles.append(article)
-                    
-            except Exception as e:
-                print(f"RSS feed 錯誤 ({feed_url}): {e}")
-                continue
-        
-        # 根據時間排序並限制數量
-        return all_articles[:max_articles]
-    
-    def get_fallback_news(self):
-        """備用新聞（當API都無法使用時）"""
-        return [
-            {
-                'title': 'Google Gemini 2.5 Flash 效能大幅提升',
-                'summary': 'Google最新發布的Gemini 2.5 Flash在多項AI基準測試中表現優異，特別在程式碼生成和數學推理方面有顯著提升，處理速度比前一版本快30%。',
-                'link': '#',
-                'published': '2小時前',
-                'source': 'AI科技新聞',
-                'image': ''
-            },
-            {
-                'title': 'OpenAI GPT-5 開發進展最新消息',
-                'summary': '據可靠消息來源，OpenAI正在加速GPT-5的開發進程，新模型預計將在推理能力、多模態處理和程式碼生成方面帶來革命性改進。',
-                'link': '#',
-                'published': '4小時前',
-                'source': 'TechCrunch',
-                'image': ''
-            },
-            {
-                'title': 'AI醫療診斷準確率創新高',
-                'summary': '最新研究顯示，AI系統在皮膚癌、眼科疾病等特定領域的診斷準確率已經超越資深醫生，為醫療行業數位轉型提供強力支撐。',
-                'link': '#',
-                'published': '6小時前',
-                'source': 'The Verge',
-                'image': ''
-            },
-            {
-                'title': '微軟Copilot整合新功能發布',
-                'summary': 'Microsoft宣布Copilot將整合更多Office應用，包括PowerPoint自動生成、Excel智能分析等功能，預計下月正式上線。',
-                'link': '#',
-                'published': '8小時前',
-                'source': 'Microsoft新聞',
-                'image': ''
-            },
-            {
-                'title': 'AI晶片市場競爭白熱化',
-                'summary': 'NVIDIA、AMD、Intel在AI晶片領域展開激烈競爭，新一代產品性能提升的同時，價格戰也正式開打，預計將促進AI技術普及。',
-                'link': '#',
-                'published': '12小時前',
-                'source': 'Wired',
-                'image': ''
-            }
-        ]
-    
-    def get_news(self, force_refresh=False):
-        """統一的新聞獲取介面"""
-        current_time = time.time()
-        
-        if not force_refresh and 'news' in self.cache:
-            if current_time - self.cache['news']['timestamp'] < self.cache_expiry:
-                return self.cache['news']['data']
-        
-        # 優先嘗試 NewsAPI
-        news_articles = []
-        if news_api_key:
-            news_articles = self.get_newsapi_news()
-        
-        # 如果NewsAPI沒有結果，嘗試RSS
-        if not news_articles:
-            news_articles = self.get_rss_news()
-        
-        # 如果都沒有結果，使用備用新聞
-        if not news_articles:
-            news_articles = self.get_fallback_news()
-        
-        # 快取結果
-        self.cache['news'] = {
-            'data': news_articles,
-            'timestamp': current_time
-        }
-        
-        return news_articles
-
-# 改進的聊天管理類
-class ChatManager:
-    def __init__(self):
-        self.chats = {}
-        self.settings = {
-            'personality': '友善',
-            'response_length': 3,
-            'auto_save': True
-        }
-    
-    def add_message(self, chat_id, user_message, ai_response, timestamp=None):
-        """添加對話記錄"""
-        if timestamp is None:
-            timestamp = get_taiwan_time()
-        
-        if chat_id not in self.chats:
-            self.chats[chat_id] = {
-                'title': user_message[:30] + "..." if len(user_message) > 30 else user_message,
-                'messages': [],
-                'created_at': timestamp
-            }
-        
-        self.chats[chat_id]['messages'].append({
-            'user': user_message,
-            'ai': ai_response,
-            'timestamp': timestamp
-        })
-    
-    def search_chats(self, keyword):
-        """搜尋對話記錄"""
-        results = []
-        keyword_lower = keyword.lower()
-        
-        for chat_id, chat_data in self.chats.items():
-            # 搜尋標題
-            if keyword_lower in chat_data['title'].lower():
-                results.append({
-                    'chat_id': chat_id,
-                    'title': chat_data['title'],
-                    'type': 'title',
-                    'content': chat_data['title'],
-                    'timestamp': chat_data['created_at']
-                })
-            
-            # 搜尋訊息內容
-            for i, message in enumerate(chat_data['messages']):
-                # 搜尋用戶訊息
-                if keyword_lower in message['user'].lower():
-                    results.append({
-                        'chat_id': chat_id,
-                        'title': chat_data['title'],
-                        'type': 'user_message',
-                        'content': message['user'],
-                        'ai_response': message['ai'],
-                        'timestamp': message['timestamp'],
-                        'message_index': i
-                    })
-                
-                # 搜尋AI回應
-                if keyword_lower in message['ai'].lower():
-                    results.append({
-                        'chat_id': chat_id,
-                        'title': chat_data['title'],
-                        'type': 'ai_message',
-                        'content': message['ai'],
-                        'user_message': message['user'],
-                        'timestamp': message['timestamp'],
-                        'message_index': i
-                    })
-        
-        # 按時間排序，最新的在前
-        results.sort(key=lambda x: x['timestamp'], reverse=True)
-        return results
-    
-    def highlight_keyword(self, text, keyword):
-        """高亮關鍵字"""
-        if not keyword:
-            return text
-        
-        # 使用正則表達式進行不區分大小寫的替換
-        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
-        return pattern.sub(f'<span class="search-highlight">{keyword}</span>', text)
-    
-    def get_chat_history(self, chat_id):
-        """獲取特定對話的歷史記錄"""
-        return self.chats.get(chat_id, None)
-    
-    def delete_chat(self, chat_id):
-        """刪除對話"""
-        if chat_id in self.chats:
-            del self.chats[chat_id]
-            return True
-        return False
-
-# 初始化
-if "stock_manager" not in st.session_state:
-    st.session_state.stock_manager = StockDataManager()
-
-if "news_manager" not in st.session_state:
-    st.session_state.news_manager = NewsManager()
-
-if "chat_manager" not in st.session_state:
-    st.session_state.chat_manager = ChatManager()
-
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "主頁"
-
-if "watched_stocks" not in st.session_state:
-    st.session_state.watched_stocks = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA']
-
-if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = None
-
-# 初始化Gemini
-@st.cache_resource
-def init_gemini():
-    try:
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        return genai.GenerativeModel('gemini-2.5-flash')
-    except:
-        return None
-
-model = init_gemini()
-
-# 側邊欄
-with st.sidebar:
-    st.markdown("""
-    <div class="main-header" style="margin-bottom: 1rem;">
-        <h2>🚀 Will的AI小幫手</h2>
-        <span class="pro-badge">PRO</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 即時狀態指示器
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<span class="real-time-badge">🔴 即時數據</span>', unsafe_allow_html=True)
-    with col2:
-        taiwan_time = get_taiwan_time()
-        st.markdown(f"⏰ {taiwan_time.strftime('%H:%M')}")
-    
-    # 頁面導航
-    st.markdown("### 📋 功能選單")
-    
-    if st.button("🏠 智能主頁", use_container_width=True, 
-                 type="primary" if st.session_state.current_page == "主頁" else "secondary"):
-        st.session_state.current_page = "主頁"
-        st.rerun()
-    
-    if st.button("💬 AI對話", use_container_width=True,
-                 type="primary" if st.session_state.current_page == "對話" else "secondary"):
-        st.session_state.current_page = "對話"
-        st.rerun()
-    
-    if st.button("📊 即時股市", use_container_width=True,
-                 type="primary" if st.session_state.current_page == "股市" else "secondary"):
-        st.session_state.current_page = "股市"
-        st.rerun()
-    
-    if st.button("📰 AI新知", use_container_width=True,
-                 type="primary" if st.session_state.current_page == "新知" else "secondary"):
-        st.session_state.current_page = "新知"
-        st.rerun()
-    
-    if st.button("🎯 智能推薦", use_container_width=True,
-                 type="primary" if st.session_state.current_page == "推薦" else "secondary"):
-        st.session_state.current_page = "推薦"
-        st.rerun()
-    
-    if st.button("⚙️ 進階設定", use_container_width=True,
-                 type="primary" if st.session_state.current_page == "設定" else "secondary"):
-        st.session_state.current_page = "設定"
-        st.rerun()
-
-# 主要內容區域
-if st.session_state.current_page == "主頁":
-    st.markdown("""
-    <div class="main-header">
-        <h1>🎉 歡迎回來，Will！</h1>
-        <p>你的專屬AI助手 Pro版 已準備就緒</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 快速功能
-    st.markdown("### 🚀 快速開始")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🤖 開始AI對話", key="quick_chat", use_container_width=True):
-            st.session_state.current_page = "對話"
-            st.rerun()
-    
-    with col2:
-        if st.button("📰 查看AI新聞", key="quick_news", use_container_width=True):
-            st.session_state.current_page = "新知"
-            st.rerun()
-    
-    with col3:
-        if st.button("📊 查看股市", key="quick_stock", use_container_width=True):
-            st.session_state.current_page = "股市"
-            st.rerun()
-    
-    # 系統狀態
-    st.markdown("### 📊 系統狀態")
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        api_status = "🟢 正常" if model else "🔴 錯誤"
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4>🤖 AI狀態</h4>
-            <h3>{api_status}</h3>
-            <p style="color: white;">Gemini API</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        stock_count = len(st.session_state.watched_stocks)
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4>📊 關注股票</h4>
-            <h3>{stock_count}</h3>
-            <p style="color: white;">檔股票</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        chat_count = len(st.session_state.chat_manager.chats)
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4>💬 對話記錄</h4>
-            <h3>{chat_count}</h3>
-            <p style="color: white;">個對話</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        current_time = get_taiwan_time().strftime('%H:%M')
-        st.markdown(f"""
-        <div class="metric-card">
-            <h4>⏰ 台灣時間</h4>
-            <h3>{current_time}</h3>
-            <p style="color: white;">即時更新</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-elif st.session_state.current_page == "對話":
-    st.title("💬 AI智能對話")
-    
-    if not model:
-        st.error("❌ AI模型未初始化，請檢查API密鑰設定")
-        st.info("請在Streamlit Cloud的Secrets中正確設定 GOOGLE_API_KEY")
-        
-        with st.expander("📋 如何設定API密鑰"):
-            st.markdown("""
-            1. 前往 [Google AI Studio](https://makersuite.google.com/app/apikey) 獲取API密鑰
-            2. 在Streamlit Cloud點擊右下角 "Manage app"
-            3. 選擇 "Secrets" 標籤
-            4. 添加：`GOOGLE_API_KEY = "你的API密鑰"`
-            5. 保存並重新啟動應用
-            """)
-    else:
-        # 對話搜尋功能
-        st.markdown("### 🔍 搜尋對話記錄")
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            search_keyword = st.text_input("輸入關鍵字搜尋對話記錄", placeholder="例如：Python、股票、投資", key="search_input")
-        
-        with col2:
-            if st.button("🔍 搜尋", key="search_chat"):
-                if search_keyword.strip():
-                    search_results = st.session_state.chat_manager.search_chats(search_keyword.strip())
-                    
-                    if search_results:
-                        st.markdown(f"### 🎯 搜尋結果 ({len(search_results)} 筆)")
-                        
-                        for result in search_results[:10]:  # 限制顯示前10筆結果
-                            with st.expander(f"📝 {result['title']} - {result['timestamp'].strftime('%Y-%m-%d %H:%M')}"):
-                                if result['type'] == 'user_message':
-                                    st.markdown("**👤 你的問題：**")
-                                    highlighted_content = st.session_state.chat_manager.highlight_keyword(result['content'], search_keyword)
-                                    st.markdown(highlighted_content, unsafe_allow_html=True)
-                                    
-                                    st.markdown("**🤖 AI回應：**")
-                            st.write(response.text)
-                            
-                    except Exception as e:
-                        st.error(f"AI回應錯誤：{str(e)}")
-                else:
                     st.warning("請輸入問題後再發送")
         
         with col2:
@@ -725,7 +283,7 @@ elif st.session_state.current_page == "股市":
                         st.write(f"${stock_data['price']}")
                     else:
                         st.write("載入中...")
-                except:
+                except Exception:
                     st.write("無法載入")
             
             with col3:
@@ -734,7 +292,7 @@ elif st.session_state.current_page == "股市":
                         change_color = "green" if stock_data['change_percent'] >= 0 else "red"
                         st.markdown(f"<span style='color: {change_color};'>{stock_data['change_percent']:+.2f}%</span>", 
                                   unsafe_allow_html=True)
-                except:
+                except Exception:
                     st.write("--")
             
             with col4:
@@ -926,9 +484,9 @@ elif st.session_state.current_page == "推薦":
         courses = [
             "🐍 Python進階程式設計",
             "🤖 機器學習實戰應用",
-            "📊 數據科學與視覺化",
+            "📊 數據分析技能",
             "🌐 全端網頁開發",
-            "☁️ 雲端架構設計"
+            "☁️ 雲端服務應用"
         ]
         for course in courses:
             if st.button(course, key=f"course_{course}"):
@@ -1196,7 +754,445 @@ with col3:
 with col4:
     taiwan_time = get_taiwan_time()
     st.markdown(f"**⏰ {taiwan_time.strftime('%H:%M:%S')}**")
-    st.caption("台灣時間")
+    st.caption("台灣時間"):
+                                time_str = f"{time_diff.seconds // 60}分鐘前"
+                        except Exception:
+                            time_str = "時間未知"
+                    else:
+                        time_str = "時間未知"
+                    
+                    articles.append({
+                        'title': article.get('title', '無標題'),
+                        'summary': article.get('description', '無摘要'),
+                        'link': article.get('url', '#'),
+                        'published': time_str,
+                        'source': article.get('source', {}).get('name', '未知來源'),
+                        'image': article.get('urlToImage', '')
+                    })
+                
+                return articles
+        except Exception as e:
+            print(f"NewsAPI 錯誤: {e}")
+            
+        return []
+    
+    def get_rss_news(self, max_articles=15):
+        """從 RSS feeds 獲取新聞"""
+        all_articles = []
+        
+        for feed_url in self.rss_feeds:
+            try:
+                feed = feedparser.parse(feed_url)
+                
+                for entry in feed.entries[:5]:  # 每個feed最多取5篇
+                    # 解析發布時間
+                    published_time = "時間未知"
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        try:
+                            pub_time = datetime(*entry.published_parsed[:6], tzinfo=pytz.UTC)
+                            time_diff = datetime.now(pytz.UTC) - pub_time
+                            if time_diff.days > 0:
+                                published_time = f"{time_diff.days}天前"
+                            elif time_diff.seconds > 3600:
+                                published_time = f"{time_diff.seconds // 3600}小時前"
+                            else:
+                                published_time = f"{time_diff.seconds // 60}分鐘前"
+                        except Exception:
+                            pass
+                    
+                    # 取得摘要
+                    summary = ""
+                    if hasattr(entry, 'summary'):
+                        # 清理HTML標籤
+                        soup = BeautifulSoup(entry.summary, 'html.parser')
+                        summary = soup.get_text()[:200] + "..." if len(soup.get_text()) > 200 else soup.get_text()
+                    
+                    article = {
+                        'title': entry.get('title', '無標題'),
+                        'summary': summary or '無摘要',
+                        'link': entry.get('link', '#'),
+                        'published': published_time,
+                        'source': feed.feed.get('title', '未知來源'),
+                        'image': ''
+                    }
+                    
+                    # 嘗試獲取圖片
+                    if hasattr(entry, 'media_content') and entry.media_content:
+                        article['image'] = entry.media_content[0].get('url', '')
+                    elif hasattr(entry, 'enclosures') and entry.enclosures:
+                        for enclosure in entry.enclosures:
+                            if enclosure.type.startswith('image/'):
+                                article['image'] = enclosure.href
+                                break
+                    
+                    all_articles.append(article)
+                    
+            except Exception as e:
+                print(f"RSS feed 錯誤 ({feed_url}): {e}")
+                continue
+        
+        # 根據時間排序並限制數量
+        return all_articles[:max_articles]
+    
+    def get_fallback_news(self):
+        """備用新聞（當API都無法使用時）"""
+        return [
+            {
+                'title': 'Google Gemini 2.5 Flash 效能大幅提升',
+                'summary': 'Google最新發布的Gemini 2.5 Flash在多項AI基準測試中表現優異，特別在程式碼生成和數學推理方面有顯著提升，處理速度比前一版本快30%。',
+                'link': '#',
+                'published': '2小時前',
+                'source': 'AI科技新聞',
+                'image': ''
+            },
+            {
+                'title': 'OpenAI GPT-5 開發進展最新消息',
+                'summary': '據可靠消息來源，OpenAI正在加速GPT-5的開發進程，新模型預計將在推理能力、多模態處理和程式碼生成方面帶來革命性改進。',
+                'link': '#',
+                'published': '4小時前',
+                'source': 'TechCrunch',
+                'image': ''
+            },
+            {
+                'title': 'AI醫療診斷準確率創新高',
+                'summary': '最新研究顯示，AI系統在皮膚癌、眼科疾病等特定領域的診斷準確率已經超越資深醫生，為醫療行業數位轉型提供強力支撐。',
+                'link': '#',
+                'published': '6小時前',
+                'source': 'The Verge',
+                'image': ''
+            },
+            {
+                'title': '微軟Copilot整合新功能發布',
+                'summary': 'Microsoft宣布Copilot將整合更多Office應用，包括PowerPoint自動生成、Excel智能分析等功能，預計下月正式上線。',
+                'link': '#',
+                'published': '8小時前',
+                'source': 'Microsoft新聞',
+                'image': ''
+            },
+            {
+                'title': 'AI晶片市場競爭白熱化',
+                'summary': 'NVIDIA、AMD、Intel在AI晶片領域展開激烈競爭，新一代產品性能提升的同時，價格戰也正式開打，預計將促進AI技術普及。',
+                'link': '#',
+                'published': '12小時前',
+                'source': 'Wired',
+                'image': ''
+            }
+        ]
+    
+    def get_news(self, force_refresh=False):
+        """統一的新聞獲取介面"""
+        current_time = time.time()
+        
+        if not force_refresh and 'news' in self.cache:
+            if current_time - self.cache['news']['timestamp'] < self.cache_expiry:
+                return self.cache['news']['data']
+        
+        # 優先嘗試 NewsAPI
+        news_articles = []
+        if news_api_key:
+            news_articles = self.get_newsapi_news()
+        
+        # 如果NewsAPI沒有結果，嘗試RSS
+        if not news_articles:
+            news_articles = self.get_rss_news()
+        
+        # 如果都沒有結果，使用備用新聞
+        if not news_articles:
+            news_articles = self.get_fallback_news()
+        
+        # 快取結果
+        self.cache['news'] = {
+            'data': news_articles,
+            'timestamp': current_time
+        }
+        
+        return news_articles
+
+# 改進的聊天管理類
+class ChatManager:
+    def __init__(self):
+        self.chats = {}
+        self.settings = {
+            'personality': '友善',
+            'response_length': 3,
+            'auto_save': True
+        }
+    
+    def add_message(self, chat_id, user_message, ai_response, timestamp=None):
+        """添加對話記錄"""
+        if timestamp is None:
+            timestamp = get_taiwan_time()
+        
+        if chat_id not in self.chats:
+            self.chats[chat_id] = {
+                'title': user_message[:30] + "..." if len(user_message) > 30 else user_message,
+                'messages': [],
+                'created_at': timestamp
+            }
+        
+        self.chats[chat_id]['messages'].append({
+            'user': user_message,
+            'ai': ai_response,
+            'timestamp': timestamp
+        })
+    
+    def search_chats(self, keyword):
+        """搜尋對話記錄"""
+        results = []
+        keyword_lower = keyword.lower()
+        
+        for chat_id, chat_data in self.chats.items():
+            # 搜尋標題
+            if keyword_lower in chat_data['title'].lower():
+                results.append({
+                    'chat_id': chat_id,
+                    'title': chat_data['title'],
+                    'type': 'title',
+                    'content': chat_data['title'],
+                    'timestamp': chat_data['created_at']
+                })
+            
+            # 搜尋訊息內容
+            for i, message in enumerate(chat_data['messages']):
+                # 搜尋用戶訊息
+                if keyword_lower in message['user'].lower():
+                    results.append({
+                        'chat_id': chat_id,
+                        'title': chat_data['title'],
+                        'type': 'user_message',
+                        'content': message['user'],
+                        'ai_response': message['ai'],
+                        'timestamp': message['timestamp'],
+                        'message_index': i
+                    })
+                
+                # 搜尋AI回應
+                if keyword_lower in message['ai'].lower():
+                    results.append({
+                        'chat_id': chat_id,
+                        'title': chat_data['title'],
+                        'type': 'ai_message',
+                        'content': message['ai'],
+                        'user_message': message['user'],
+                        'timestamp': message['timestamp'],
+                        'message_index': i
+                    })
+        
+        # 按時間排序，最新的在前
+        results.sort(key=lambda x: x['timestamp'], reverse=True)
+        return results
+    
+    def highlight_keyword(self, text, keyword):
+        """高亮關鍵字"""
+        if not keyword:
+            return text
+        
+        # 使用正則表達式進行不區分大小寫的替換
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        return pattern.sub(f'<span class="search-highlight">{keyword}</span>', text)
+    
+    def get_chat_history(self, chat_id):
+        """獲取特定對話的歷史記錄"""
+        return self.chats.get(chat_id, None)
+    
+    def delete_chat(self, chat_id):
+        """刪除對話"""
+        if chat_id in self.chats:
+            del self.chats[chat_id]
+            return True
+        return False
+
+# 初始化
+if "stock_manager" not in st.session_state:
+    st.session_state.stock_manager = StockDataManager()
+
+if "news_manager" not in st.session_state:
+    st.session_state.news_manager = NewsManager()
+
+if "chat_manager" not in st.session_state:
+    st.session_state.chat_manager = ChatManager()
+
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "主頁"
+
+if "watched_stocks" not in st.session_state:
+    st.session_state.watched_stocks = ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'NVDA']
+
+if "current_chat_id" not in st.session_state:
+    st.session_state.current_chat_id = None
+
+# 初始化Gemini
+@st.cache_resource
+def init_gemini():
+    try:
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        return genai.GenerativeModel('gemini-2.5-flash')
+    except Exception:
+        return None
+
+model = init_gemini()
+
+# 側邊欄
+with st.sidebar:
+    st.markdown("""
+    <div class="main-header" style="margin-bottom: 1rem;">
+        <h2>🚀 Will的AI小幫手</h2>
+        <span class="pro-badge">PRO</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 即時狀態指示器
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('<span class="real-time-badge">🔴 即時數據</span>', unsafe_allow_html=True)
+    with col2:
+        taiwan_time = get_taiwan_time()
+        st.markdown(f"⏰ {taiwan_time.strftime('%H:%M')}")
+    
+    # 頁面導航
+    st.markdown("### 📋 功能選單")
+    
+    if st.button("🏠 智能主頁", use_container_width=True, 
+                 type="primary" if st.session_state.current_page == "主頁" else "secondary"):
+        st.session_state.current_page = "主頁"
+        st.rerun()
+    
+    if st.button("💬 AI對話", use_container_width=True,
+                 type="primary" if st.session_state.current_page == "對話" else "secondary"):
+        st.session_state.current_page = "對話"
+        st.rerun()
+    
+    if st.button("📊 即時股市", use_container_width=True,
+                 type="primary" if st.session_state.current_page == "股市" else "secondary"):
+        st.session_state.current_page = "股市"
+        st.rerun()
+    
+    if st.button("📰 AI新知", use_container_width=True,
+                 type="primary" if st.session_state.current_page == "新知" else "secondary"):
+        st.session_state.current_page = "新知"
+        st.rerun()
+    
+    if st.button("🎯 智能推薦", use_container_width=True,
+                 type="primary" if st.session_state.current_page == "推薦" else "secondary"):
+        st.session_state.current_page = "推薦"
+        st.rerun()
+    
+    if st.button("⚙️ 進階設定", use_container_width=True,
+                 type="primary" if st.session_state.current_page == "設定" else "secondary"):
+        st.session_state.current_page = "設定"
+        st.rerun()
+
+# 主要內容區域
+if st.session_state.current_page == "主頁":
+    st.markdown("""
+    <div class="main-header">
+        <h1>🎉 歡迎回來，Will！</h1>
+        <p>你的專屬AI助手 Pro版 已準備就緒</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 快速功能
+    st.markdown("### 🚀 快速開始")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🤖 開始AI對話", key="quick_chat", use_container_width=True):
+            st.session_state.current_page = "對話"
+            st.rerun()
+    
+    with col2:
+        if st.button("📰 查看AI新聞", key="quick_news", use_container_width=True):
+            st.session_state.current_page = "新知"
+            st.rerun()
+    
+    with col3:
+        if st.button("📊 查看股市", key="quick_stock", use_container_width=True):
+            st.session_state.current_page = "股市"
+            st.rerun()
+    
+    # 系統狀態
+    st.markdown("### 📊 系統狀態")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        api_status = "🟢 正常" if model else "🔴 錯誤"
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4>🤖 AI狀態</h4>
+            <h3>{api_status}</h3>
+            <p style="color: white;">Gemini API</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        stock_count = len(st.session_state.watched_stocks)
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4>📊 關注股票</h4>
+            <h3>{stock_count}</h3>
+            <p style="color: white;">檔股票</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        chat_count = len(st.session_state.chat_manager.chats)
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4>💬 對話記錄</h4>
+            <h3>{chat_count}</h3>
+            <p style="color: white;">個對話</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        current_time = get_taiwan_time().strftime('%H:%M')
+        st.markdown(f"""
+        <div class="metric-card">
+            <h4>⏰ 台灣時間</h4>
+            <h3>{current_time}</h3>
+            <p style="color: white;">即時更新</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+elif st.session_state.current_page == "對話":
+    st.title("💬 AI智能對話")
+    
+    if not model:
+        st.error("❌ AI模型未初始化，請檢查API密鑰設定")
+        st.info("請在Streamlit Cloud的Secrets中正確設定 GOOGLE_API_KEY")
+        
+        with st.expander("📋 如何設定API密鑰"):
+            st.markdown("""
+            1. 前往 [Google AI Studio](https://makersuite.google.com/app/apikey) 獲取API密鑰
+            2. 在Streamlit Cloud點擊右下角 "Manage app"
+            3. 選擇 "Secrets" 標籤
+            4. 添加：`GOOGLE_API_KEY = "你的API密鑰"`
+            5. 保存並重新啟動應用
+            """)
+    else:
+        # 對話搜尋功能
+        st.markdown("### 🔍 搜尋對話記錄")
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            search_keyword = st.text_input("輸入關鍵字搜尋對話記錄", placeholder="例如：Python、股票、投資", key="search_input")
+        
+        with col2:
+            if st.button("🔍 搜尋", key="search_chat"):
+                if search_keyword.strip():
+                    search_results = st.session_state.chat_manager.search_chats(search_keyword.strip())
+                    
+                    if search_results:
+                        st.markdown(f"### 🎯 搜尋結果 ({len(search_results)} 筆)")
+                        
+                        for result in search_results[:10]:  # 限制顯示前10筆結果
+                            with st.expander(f"📝 {result['title']} - {result['timestamp'].strftime('%Y-%m-%d %H:%M')}"):
+                                if result['type'] == 'user_message':
+                                    st.markdown("**👤 你的問題：**")
+                                    highlighted_content = st.session_state.chat_manager.highlight_keyword(result['content'], search_keyword)
+                                    st.markdown(highlighted_content, unsafe_allow_html=True)
+                                    
+                                    st.markdown("**🤖 AI回應：**")
                                     highlighted_response = st.session_state.chat_manager.highlight_keyword(result['ai_response'], search_keyword)
                                     st.markdown(highlighted_response, unsafe_allow_html=True)
                                 
@@ -1250,4 +1246,9 @@ with col4:
                             st.markdown("**👤 你的問題：**")
                             st.write(user_input)
                             
-                            st.markdown("**🤖 AI回應：**
+                            st.markdown("**🤖 AI回應：**")
+                            st.write(response.text)
+                            
+                    except Exception as e:
+                        st.error(f"AI回應錯誤：{str(e)}")
+                else
