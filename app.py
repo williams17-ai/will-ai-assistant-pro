@@ -228,7 +228,14 @@ class NewsManager:
                             elif time_diff.seconds > 3600:
                                 time_str = f"{time_diff.seconds // 3600}小時前"
                             else:
-                    st.warning("請輸入問題後再發送")
+                            if st.button("💬 發送", key="send_msg", type="primary"):
+                            if user_input.strip():
+                                try:
+                                    # AI 處理邏輯
+                                except Exception as e:
+                                    st.error(f"AI回應錯誤：{str(e)}")
+                            else:
+                                st.warning("請輸入問題後再發送")  # 正確的縮排
         
         with col2:
             if st.button("🔄 新對話", key="new_chat"):
